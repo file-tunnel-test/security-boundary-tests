@@ -1,0 +1,53 @@
+{
+  "auditHead": "sha256:1b69963c2b47c92934ebb8758f9ab4a0c3da31402b6a15fc75e255b3111c50d1",
+  "evidenceDigest": "sha256:58a85c1bf73c73f28a30a7e8901f684384afe0f3aba7e4f4c92c245699fbe3e9",
+  "results": {
+    "auditChainValid": true,
+    "auditContainsNoObjectOrKeyMaterial": true,
+    "auditEvents": 9,
+    "auditFieldsPresent": [
+      "initiator",
+      "target",
+      "bytes",
+      "checksum",
+      "kmsKeyVersion",
+      "finalStatus"
+    ],
+    "crossTenantDecryptionRejected": true,
+    "exactRetryIdempotent": true,
+    "kmsKeyVersionBound": true,
+    "largeFinalizeMaterializedWholePlaintext": false,
+    "largeObjectChunkCount": 4,
+    "largeObjectIntegrityMode": "per-chunk-sha256",
+    "largeObjectManifestDigest": "sha256:86f009f83cdf920ca9ff61c07f507f2692dc460ad499fa8f1a26f8cd298921f5",
+    "nistAes256GcmVector": true,
+    "peakInputChunkBytes": 24,
+    "peakVerificationChunkBytes": 24,
+    "retentionMixedStatesCertified": true,
+    "retentionPurged": [
+      "tenant-a/completed-expired",
+      "tenant-a/failed-expired"
+    ],
+    "retentionRetained": [
+      "tenant-a/completed-active",
+      "tenant-a/uploading-active",
+      "tenant-b/held"
+    ],
+    "smallObjectIntegrityMode": "whole-file-sha256",
+    "smallObjectWholeSha256": "sha256:077deac9ab2d9f8f6d914705319cdf53ed8f04d8e2e4ca815664d279215b71bf",
+    "tamperDetected": true,
+    "temporaryPlaintextBytesAfterCommit": 0,
+    "uploadSessionBoundToAadAndNonce": true,
+    "uploadSessionTamperDetected": true,
+    "wrongKeyMaterialRejected": true,
+    "wrongKmsVersionRejected": true
+  },
+  "schema": "file-tunnel-test/den-3431-certification/v1",
+  "source": {
+    "commit": "f33d79896584a4a2fa4dcde88f0cd4cf863e11cb",
+    "existingPrimitive": "strict-sequential-idempotent-resume",
+    "liveEncryptedObjectAdapterCertified": false,
+    "repository": "file-tunnel/ftnl-backend-api.rs"
+  },
+  "ticket": "DEN-3431"
+}
