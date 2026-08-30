@@ -1,3 +1,5 @@
+import datetime
+import hashlib
 import random
 import re
 import unittest
@@ -6,12 +8,14 @@ from pathlib import Path
 from deep_tests.security_model import (
     BoundaryViolation,
     Principal,
+    ProximityFrameWindow,
     ReplayWindow,
     authorize_read,
     normalize_relative_path,
     redact,
     sign,
     validate_outbound_url,
+    validate_proximity_payload,
 )
 
 
@@ -78,6 +82,121 @@ class SecurityBoundaryTests(unittest.TestCase):
         self.assertNotIn(github_shape, result)
         self.assertNotIn(linear_shape, result)
         self.assertNotIn("opaque", result)
+
+    def test_proximity_shared_auth_relay_is_opaque_and_field_closed(self) -> None:
+        now = datetime.datetime(2026, 8, 25, tzinfo=datetime.timezone.utc)
+        payload = {
+            "payload_type": "shared_auth_step_up",
+            "exchange_id": "00000000-0000-4000-8000-000000000011",
+            "recipient_device_fingerprint": "a" * 64,
+            "opaque_request_b64url": "A" * 43,
+            "expires_at": "2026-08-25T00:05:00Z",
+        }
+        validate_proximity_payload(payload, now=now)
+
+        for forbidden in (
+            "access_token",
+            "assurance_level",
+            "authorization",
+            "factor_result",
+            "otp",
+            "password",
+            "private_key",
+            "raw_binary",
+        ):
+            with self.subTest(forbidden=forbidden), self.assertRaises(BoundaryViolation):
+                validate_proximity_payload(payload | {forbidden: "synthetic"}, now=now)
+
+        with self.assertRaises(BoundaryViolation):
+            validate_proximity_payload(payload | {"expires_at": "2026-08-24T23:59:59Z"}, now=now)
+
+    def test_peer_offer_digest_and_signed_https_update_manifest(self) -> None:
+        now = datetime.datetime(2026, 8, 25, tzinfo=datetime.timezone.utc)
+        content = b"{}"
+        peer = {
+            "payload_type": "peer_info_offer",
+            "transfer_id": "00000000-0000-4000-8000-000000000012",
+            "media_type": "application/json",
+            "content_size_bytes": len(content),
+            "content_sha256": hashlib.sha256(content).hexdigest(),
+            "content_b64url": "e30",
+            "expires_at": "2026-08-25T00:05:00Z",
+        }
+        validate_proximity_payload(peer, now=now)
+        with self.assertRaises(BoundaryViolation):
+            validate_proximity_payload(peer | {"content_size_bytes": 3}, now=now)
+        with self.assertRaises(BoundaryViolation):
+            validate_proximity_payload(peer | {"content_sha256": "b" * 64}, now=now)
+
+        update = {
+            "payload_type": "update_manifest_offer",
+            "application_id": "dev.file-tunnel.desktop",
+            "platform": "ios",
+            "version": "1.2.3-testflight.4",
+            "distribution": "testflight",
+            "manifest_url": "https://updates.file-tunnel.dev/v1/ios/manifest.json",
+            "manifest_sha256": "b" * 64,
+            "signature_algorithm": "ed25519",
+            "signer_key_id": "release-2026-08",
+            "manifest_signature_b64url": "A" * 86,
+            "expires_at": "2026-08-25T00:05:00Z",
+        }
+        validate_proximity_payload(update, now=now)
+        for unsafe_url in (
+            "http://updates.file-tunnel.dev/manifest.json",
+            "https://user@updates.file-tunnel.dev/manifest.json",
+            "https://updates.file-tunnel.dev/manifest.json#package",
+        ):
+            with self.subTest(unsafe_url=unsafe_url), self.assertRaises(BoundaryViolation):
+                validate_proximity_payload(update | {"manifest_url": unsafe_url}, now=now)
+        for invalid_field in (
+            {"platform": "unknown"},
+            {"distribution": "silent_install"},
+            {"manifest_sha256": "not-a-digest"},
+            {"signature_algorithm": "none"},
+        ):
+            with self.subTest(invalid_field=invalid_field), self.assertRaises(BoundaryViolation):
+                validate_proximity_payload(update | invalid_field, now=now)
+        with self.assertRaises(BoundaryViolation):
+            validate_proximity_payload(update | {"raw_application_b64url": "A" * 22}, now=now)
+
+    def test_proximity_frame_window_rejects_cross_session_replay_and_reordering(self) -> None:
+        window = ProximityFrameWindow("session-a")
+        window.accept(
+            session_id="session-a",
+            sequence=1,
+            nonce_b64url="A" * 16,
+            ciphertext_b64url="B" * 22,
+        )
+        attempts = (
+            {
+                "session_id": "session-a",
+                "sequence": 1,
+                "nonce_b64url": "C" * 16,
+                "ciphertext_b64url": "B" * 22,
+            },
+            {
+                "session_id": "session-b",
+                "sequence": 2,
+                "nonce_b64url": "C" * 16,
+                "ciphertext_b64url": "B" * 22,
+            },
+            {
+                "session_id": "session-a",
+                "sequence": 2,
+                "nonce_b64url": "A" * 16,
+                "ciphertext_b64url": "B" * 22,
+            },
+            {
+                "session_id": "session-a",
+                "sequence": 2,
+                "nonce_b64url": "C" * 16,
+                "ciphertext_b64url": "B" * 49153,
+            },
+        )
+        for attempt in attempts:
+            with self.subTest(attempt=attempt), self.assertRaises(BoundaryViolation):
+                window.accept(**attempt)
 
     def test_workflow_actions_are_immutable_and_permissions_are_read_only(self) -> None:
         workflow = Path(".github/workflows/deep-tests.yml").read_text()
