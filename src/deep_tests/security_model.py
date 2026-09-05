@@ -110,6 +110,9 @@ class ReplayWindow:
 
 _BASE64URL = re.compile(r"^[A-Za-z0-9_-]+$")
 _SHA256 = re.compile(r"^[a-f0-9]{64}$")
+_UUID = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+)
 _PROXIMITY_FIELDS = {
     "shared_auth_step_up": frozenset(
         {
@@ -160,8 +163,11 @@ def validate_proximity_payload(
         raise BoundaryViolation("proximity payload expired")
 
     if payload_type == "shared_auth_step_up":
+        exchange_id = payload["exchange_id"]
         fingerprint = payload["recipient_device_fingerprint"]
         opaque = payload["opaque_request_b64url"]
+        if not isinstance(exchange_id, str) or not _UUID.fullmatch(exchange_id):
+            raise BoundaryViolation("exchange id must be a canonical UUID")
         if not isinstance(fingerprint, str) or not _SHA256.fullmatch(fingerprint):
             raise BoundaryViolation("recipient fingerprint must be SHA-256")
         if not isinstance(opaque, str) or not 1 <= len(opaque) <= 2731:
@@ -170,10 +176,18 @@ def validate_proximity_payload(
         return
 
     if payload_type == "peer_info_offer":
+        transfer_id = payload["transfer_id"]
         content = _decode_base64url(payload["content_b64url"])
         size = payload["content_size_bytes"]
         digest = payload["content_sha256"]
-        if not isinstance(size, int) or not 1 <= size <= 32768 or len(content) != size:
+        if not isinstance(transfer_id, str) or not _UUID.fullmatch(transfer_id):
+            raise BoundaryViolation("transfer id must be a canonical UUID")
+        if (
+            not isinstance(size, int)
+            or isinstance(size, bool)
+            or not 1 <= size <= 32768
+            or len(content) != size
+        ):
             raise BoundaryViolation("peer content size is invalid")
         if not isinstance(digest, str) or not hmac.compare_digest(
             hashlib.sha256(content).hexdigest(), digest
@@ -227,7 +241,11 @@ class ProximityFrameWindow:
     ) -> None:
         if session_id != self.session_id:
             raise BoundaryViolation("frame belongs to another proximity session")
-        if sequence != self.next_sequence:
+        if (
+            not isinstance(sequence, int)
+            or isinstance(sequence, bool)
+            or sequence != self.next_sequence
+        ):
             raise BoundaryViolation("frame is replayed or out of order")
         if nonce_b64url in self.seen_nonces:
             raise BoundaryViolation("frame nonce was reused")

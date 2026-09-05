@@ -160,6 +160,38 @@ class SecurityBoundaryTests(unittest.TestCase):
         with self.assertRaises(BoundaryViolation):
             validate_proximity_payload(update | {"raw_application_b64url": "A" * 22}, now=now)
 
+    def test_proximity_payloads_reject_missing_fields_bad_encoding_and_boolean_sizes(self) -> None:
+        now = datetime.datetime(2026, 8, 25, tzinfo=datetime.timezone.utc)
+        shared_auth = {
+            "payload_type": "shared_auth_step_up",
+            "exchange_id": "00000000-0000-4000-8000-000000000013",
+            "recipient_device_fingerprint": "a" * 64,
+            "opaque_request_b64url": "A" * 43,
+            "expires_at": "2026-08-25T00:05:00Z",
+        }
+        invalid_shared_auth = (
+            shared_auth | {"exchange_id": None},
+            {key: value for key, value in shared_auth.items() if key != "exchange_id"},
+            shared_auth | {"opaque_request_b64url": "A="},
+            shared_auth | {"expires_at": "2026-08-25T00:05:00"},
+        )
+        for payload in invalid_shared_auth:
+            with self.subTest(payload=payload), self.assertRaises(BoundaryViolation):
+                validate_proximity_payload(payload, now=now)
+
+        content = b"x"
+        peer = {
+            "payload_type": "peer_info_offer",
+            "transfer_id": "00000000-0000-4000-8000-000000000014",
+            "media_type": "application/octet-stream",
+            "content_size_bytes": True,
+            "content_sha256": hashlib.sha256(content).hexdigest(),
+            "content_b64url": "eA",
+            "expires_at": "2026-08-25T00:05:00Z",
+        }
+        with self.assertRaises(BoundaryViolation):
+            validate_proximity_payload(peer, now=now)
+
     def test_proximity_frame_window_rejects_cross_session_replay_and_reordering(self) -> None:
         window = ProximityFrameWindow("session-a")
         window.accept(
@@ -197,6 +229,14 @@ class SecurityBoundaryTests(unittest.TestCase):
         for attempt in attempts:
             with self.subTest(attempt=attempt), self.assertRaises(BoundaryViolation):
                 window.accept(**attempt)
+
+        with self.assertRaises(BoundaryViolation):
+            ProximityFrameWindow("session-b").accept(
+                session_id="session-b",
+                sequence=True,
+                nonce_b64url="A" * 16,
+                ciphertext_b64url="B" * 22,
+            )
 
     def test_workflow_actions_are_immutable_and_permissions_are_read_only(self) -> None:
         workflow = Path(".github/workflows/deep-tests.yml").read_text()
