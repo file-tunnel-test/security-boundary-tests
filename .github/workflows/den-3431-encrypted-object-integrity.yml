@@ -1,0 +1,97 @@
+name: DEN-3431 encrypted-object integrity certification
+
+on:
+  pull_request:
+    paths:
+      - 'src/deep_tests/encrypted_object_model.py'
+      - 'tests/test_den_3431_encrypted_objects.py'
+      - 'scripts/run_den_3431_certification.py'
+      - 'conformance/den-3431-source.json'
+      - 'docs/DEN-3431.md'
+      - 'evidence/den-3431-certification.json'
+      - '.github/workflows/den-3431-encrypted-object-integrity.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/deep_tests/encrypted_object_model.py'
+      - 'tests/test_den_3431_encrypted_objects.py'
+      - 'scripts/run_den_3431_certification.py'
+      - 'conformance/den-3431-source.json'
+      - 'docs/DEN-3431.md'
+      - 'evidence/den-3431-certification.json'
+      - '.github/workflows/den-3431-encrypted-object-integrity.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  certify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout independent test organization
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Validate hermetic Python runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import sys
+          assert sys.version_info >= (3, 11), sys.version
+          PY
+
+      - name: Checkout exact current File Tunnel resume source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: file-tunnel/ftnl-backend-api.rs
+          ref: f33d79896584a4a2fa4dcde88f0cd4cf863e11cb
+          path: source
+          persist-credentials: false
+
+      - name: Prove exact source commit and resume blob
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = f33d79896584a4a2fa4dcde88f0cd4cf863e11cb
+          test "$(git -C source hash-object src/resumable.rs)" = 2d00b4b215995ac938fd6720ac51a6627b3f6d11
+          python3 -m json.tool conformance/den-3431-source.json >/dev/null
+
+      - name: Run exact production resume primitive tests
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --locked resumable::tests
+
+      - name: Run independent encryption, resume, retention, and isolation contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile \
+            src/deep_tests/encrypted_object_model.py \
+            scripts/run_den_3431_certification.py \
+            tests/test_den_3431_encrypted_objects.py
+          python3 -m unittest discover -s tests -p 'test_den_3431_encrypted_objects.py' -v
+          mkdir -p evidence
+          python3 scripts/run_den_3431_certification.py --output "$RUNNER_TEMP/evidence-a.json"
+          python3 scripts/run_den_3431_certification.py --output "$RUNNER_TEMP/evidence-b.json"
+          cmp "$RUNNER_TEMP/evidence-a.json" "$RUNNER_TEMP/evidence-b.json"
+          cmp "$RUNNER_TEMP/evidence-a.json" evidence/den-3431-certification.json
+          python3 -m json.tool evidence/den-3431-certification.json >/dev/null
+
+      - name: Upload retained certification evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: den-3431-encrypted-object-integrity
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 30

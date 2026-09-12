@@ -1,0 +1,35 @@
+{
+  "schema": "file-tunnel-test/source-pin/v1",
+  "ticket": "DEN-3431",
+  "source": {
+    "repository": "file-tunnel/ftnl-backend-api.rs",
+    "commit": "f33d79896584a4a2fa4dcde88f0cd4cf863e11cb",
+    "requiredFiles": [
+      {
+        "path": "src/resumable.rs",
+        "blobSha": "2d00b4b215995ac938fd6720ac51a6627b3f6d11"
+      }
+    ],
+    "existingCapabilities": [
+      "strict-sequential-content-range",
+      "idempotent-exact-retry",
+      "gap-overlap-total-change-and-conflicting-retry-rejection",
+      "bounded-declared-object-size"
+    ]
+  },
+  "claim": {
+    "independentReferenceContractCertified": true,
+    "liveEncryptedObjectAdapterCertified": false,
+    "missingSourceIntegration": [
+      "aes-256-gcm-object-encryption",
+      "kms-key-version-binding",
+      "verified-small-object-whole-file-sha256",
+      "verified-large-object-per-chunk-checksums",
+      "retention-cleanup-execution",
+      "tenant-scoped-decryption-adapter",
+      "durable-encrypted-object-audit-ledger",
+      "upload-generation-bound-nonce-and-aad",
+      "streaming-large-object-finalization"
+    ]
+  }
+}
